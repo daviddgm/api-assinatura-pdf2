@@ -2,9 +2,11 @@ import os
 import tempfile
 import uuid
 import traceback
-import json
 from flask import Flask, request, jsonify, send_file
+
+# --- IMPORTS DO PYHANKO (A correção entra aqui!) ---
 from pyhanko.sign import signers
+from pyhanko.sign.general import SimpleCertificateStore  # <--- ESTA É A LINHA QUE FALTAVA!
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.stamp import TextStampStyle
 from pyhanko.sign.fields import SigFieldSpec, append_signature_field
