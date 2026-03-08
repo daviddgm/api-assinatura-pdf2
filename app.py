@@ -4,13 +4,14 @@ import uuid
 import traceback
 from flask import Flask, request, jsonify, send_file
 
-# --- IMPORTS DO PYHANKO (A correção entra aqui!) ---
+# --- A GRANDE MUDANÇA: Usamos a biblioteca raiz para ler o certificado ---
+from asn1crypto.x509 import Certificate
+from asn1crypto.pem import unarmor
+
 from pyhanko.sign import signers
-from pyhanko.sign.general import SimpleCertificateStore  # <--- ESTA É A LINHA QUE FALTAVA!
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.stamp import TextStampStyle
 from pyhanko.sign.fields import SigFieldSpec, append_signature_field
-from pyhanko.keys import load_cert_from_pemder
 
 app = Flask(__name__)
 TEMP_DIR = tempfile.gettempdir()
@@ -29,37 +30,37 @@ def preparar_pdf():
         pdf_path = os.path.join(TEMP_DIR, f'{id_sessao}.pdf')
         pdf_file.save(pdf_path)
         
-        # A CORREÇÃO ESTÁ AQUI: Guarda o texto do certificado num ficheiro temporário
-        cert_path = os.path.join(TEMP_DIR, f'{id_sessao}_cert.pem')
-        with open(cert_path, 'wb') as f:
-            f.write(cert_pem)
-            
-        # Agora sim, o pyHanko lê a partir do ficheiro físico
-        certificado = load_cert_from_pemder(cert_path)
+        # Lê o certificado PEM diretamente da memória usando asn1crypto
+        type_name, headers, der_bytes = unarmor(cert_pem)
+        certificado = Certificate.load(der_bytes)
         
-        # NOVO: Cria o "cofre" (registry) que a biblioteca agora exige
-        cert_registry = SimpleCertificateStore()
-        cert_registry.register(certificado)
-        
-        if posicao == '1': box = (60, 280, 220, 330)
-        elif posicao == '2': box = (220, 280, 380, 330)
-        else: box = (380, 280, 540, 330)
+        # Coordenadas do carimbo
+        if posicao == '1': box = (40, 380, 190, 440)
+        elif posicao == '2': box = (222, 380, 372, 440)
+        else: box = (405, 380, 555, 440)
 
         with open(pdf_path, 'rb+') as doc:
             writer = IncrementalPdfFileWriter(doc)
             nome_campo = 'Assinatura_OSE_' + id_sessao
             ultima_pagina = int(writer.prev.root['/Pages']['/Count']) - 1
 
+            # Cria o espaço de assinatura no PDF
             append_signature_field(writer, SigFieldSpec(sig_field_name=nome_campo, on_page=ultima_pagina, box=box))
             
+            # Estilo do carimbo visual
             texto = f"✓ ASSINADO DIGITALMENTE\nPor: {nome_assinante}\n{cargo}\nData: %(ts)s"
-            stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background=0)
+            stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background_alpha=0)
 
-            # NOVO: Passamos o cert_registry aqui no SimpleSigner!
+            # Instancia o Signer passando diretamente o objeto certificado
             signer = signers.SimpleSigner(
                 signing_cert=certificado, 
-                signing_key=None, 
-                cert_registry=cert_registry
+                signing_key=None
+            )
+            
+            pdf_signer = signers.PdfSigner(
+                signature_meta=signers.PdfSignatureMetadata(field_name=nome_campo, md_algorithm='sha256'),
+                signer=signer,
+                stamp_style=stamp_style
             )
             
             # Prepara o documento e extrai o Hash sem assinar
@@ -86,21 +87,22 @@ def preparar_pdf():
 def injetar_assinatura():
     try:
         id_sessao = request.form['id_sessao']
-        assinatura_hex = request.form['assinatura_hex'] # A assinatura matemática gerada no browser
+        assinatura_hex = request.form['assinatura_hex'] 
         
         pendente_path = os.path.join(TEMP_DIR, f'{id_sessao}_pendente.pdf')
         out_path = os.path.join(TEMP_DIR, f'{id_sessao}_final.pdf')
         
         assinatura_bytes = bytes.fromhex(assinatura_hex)
         
-        # Aqui o pyHanko pega na assinatura bruta, empacota em CMS (PKCS#7) e cola no PDF
-        with open(pendente_path, 'rb') as doc_in:
-            with open(out_path, 'wb') as doc_out:
-                # Nota: A injeção direta de raw bytes depende da versão do pyHanko.
-                # O ideal é usar o PdfCMSEmbedder nativo para injetar o CMS gerado.
-                signers.PdfSigner.fill_external_signature(doc_in, doc_out, assinatura_bytes)
+        # ATENÇÃO: Deixei comentado a injeção antiga pois validaremos o fluxo primeiro!
+        # with open(pendente_path, 'rb') as doc_in:
+        #    with open(out_path, 'wb') as doc_out:
+        #        signers.PdfSigner.fill_external_signature(doc_in, doc_out, assinatura_bytes)
                 
-        return send_file(out_path, as_attachment=True, download_name='assinado.pdf', mimetype='application/pdf')
+        return jsonify({'erro': 'Aviso: Preparação e JavaScript passaram com sucesso! Rota de Injeção em Manutenção.'}), 500
 
     except Exception as e:
         return jsonify({'erro': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
