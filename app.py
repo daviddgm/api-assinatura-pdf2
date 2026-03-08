@@ -35,6 +35,10 @@ def preparar_pdf():
         # Agora sim, o pyHanko lê a partir do ficheiro físico
         certificado = load_cert_from_pemder(cert_path)
         
+        # NOVO: Cria o "cofre" (registry) que a biblioteca agora exige
+        cert_registry = SimpleCertificateStore()
+        cert_registry.register(certificado)
+        
         if posicao == '1': box = (60, 280, 220, 330)
         elif posicao == '2': box = (220, 280, 380, 330)
         else: box = (380, 280, 540, 330)
@@ -47,14 +51,13 @@ def preparar_pdf():
             append_signature_field(writer, SigFieldSpec(sig_field_name=nome_campo, on_page=ultima_pagina, box=box))
             
             texto = f"✓ ASSINADO DIGITALMENTE\nPor: {nome_assinante}\n{cargo}\nData: %(ts)s"
-            stamp_style = TextStampStyle(stamp_text=texto,border_width=0,background=None)
+            stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background=0)
 
-            # Usamos um Signer "falso" apenas para preparar o espaço
-            signer = signers.SimpleSigner(signing_cert=certificado, signing_key=None)
-            pdf_signer = signers.PdfSigner(
-                signature_meta=signers.PdfSignatureMetadata(field_name=nome_campo, md_algorithm='sha256'),
-                signer=signer,
-                stamp_style=stamp_style
+            # NOVO: Passamos o cert_registry aqui no SimpleSigner!
+            signer = signers.SimpleSigner(
+                signing_cert=certificado, 
+                signing_key=None, 
+                cert_registry=cert_registry
             )
             
             # Prepara o documento e extrai o Hash sem assinar
