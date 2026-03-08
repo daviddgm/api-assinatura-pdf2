@@ -35,9 +35,9 @@ def preparar_pdf():
         certificado = Certificate.load(der_bytes)
         
         # Coordenadas do carimbo
-        if posicao == '1': box = (40, 380, 190, 440)
-        elif posicao == '2': box = (222, 380, 372, 440)
-        else: box = (405, 380, 555, 440)
+        if posicao == '1': box = (60, 280, 220, 330)
+        elif posicao == '2': box = (220, 280, 380, 330)
+        else: box = (380, 280, 540, 330)
 
         with open(pdf_path, 'rb+') as doc:
             writer = IncrementalPdfFileWriter(doc)
