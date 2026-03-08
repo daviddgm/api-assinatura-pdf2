@@ -49,7 +49,7 @@ def preparar_pdf():
             
             # Estilo do carimbo visual
             texto = f"✓ ASSINADO DIGITALMENTE\nPor: {nome_assinante}\n{cargo}\nData: %(ts)s"
-            stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background_alpha=0)
+            stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background=0)
 
             # Instancia o Signer passando diretamente o objeto certificado
             signer = signers.SimpleSigner(
