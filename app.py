@@ -30,9 +30,9 @@ def preparar_pdf():
         # Carrega apenas a parte pública do certificado
         certificado = load_cert_from_pemder(cert_pem)
         
-        if posicao == '1': box = (40, 380, 190, 440)
-        elif posicao == '2': box = (222, 380, 372, 440)
-        else: box = (405, 380, 555, 440)
+        if posicao == '1': box = (60, 280, 220, 330)
+        elif posicao == '2': box = (220, 280, 380, 330)
+        else: box = (380, 280, 540, 330)
 
         with open(pdf_path, 'rb+') as doc:
             writer = IncrementalPdfFileWriter(doc)
@@ -41,7 +41,7 @@ def preparar_pdf():
 
             append_signature_field(writer, SigFieldSpec(sig_field_name=nome_campo, on_page=ultima_pagina, box=box))
             
-            texto = f"✓ ASSINADO DIGITALMENTE\nPor: {nome_assinante}\n{cargo}\nData: %(ts)s"
+            texto = f"ASSINADO DIGITALMENTE\nPor: {nome_assinante}\n{cargo}\nData: %(ts)s"
             stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background_alpha=0)
 
             # Usamos um Signer "falso" apenas para preparar o espaço
