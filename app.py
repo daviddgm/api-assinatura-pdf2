@@ -18,7 +18,7 @@ TEMP_DIR = tempfile.gettempdir()
 def preparar_pdf():
     try:
         pdf_file = request.files['pdf']
-        cert_pem = request.form['cert_pem'].encode('utf-8') # Recebe apenas o Certificado Público
+        cert_pem = request.form['cert_pem'].encode('utf-8') 
         nome_assinante = request.form.get('nome_assinante', 'Responsável')
         cargo = request.form.get('cargo', '')
         posicao = request.form.get('posicao', '1')
@@ -27,8 +27,13 @@ def preparar_pdf():
         pdf_path = os.path.join(TEMP_DIR, f'{id_sessao}.pdf')
         pdf_file.save(pdf_path)
         
-        # Carrega apenas a parte pública do certificado
-        certificado = load_cert_from_pemder(cert_pem)
+        # A CORREÇÃO ESTÁ AQUI: Guarda o texto do certificado num ficheiro temporário
+        cert_path = os.path.join(TEMP_DIR, f'{id_sessao}_cert.pem')
+        with open(cert_path, 'wb') as f:
+            f.write(cert_pem)
+            
+        # Agora sim, o pyHanko lê a partir do ficheiro físico
+        certificado = load_cert_from_pemder(cert_path)
         
         if posicao == '1': box = (60, 280, 220, 330)
         elif posicao == '2': box = (220, 280, 380, 330)
@@ -41,7 +46,7 @@ def preparar_pdf():
 
             append_signature_field(writer, SigFieldSpec(sig_field_name=nome_campo, on_page=ultima_pagina, box=box))
             
-            texto = f"ASSINADO DIGITALMENTE\nPor: {nome_assinante}\n{cargo}\nData: %(ts)s"
+            texto = f"✓ ASSINADO DIGITALMENTE\nPor: {nome_assinante}\n{cargo}\nData: %(ts)s"
             stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background_alpha=0)
 
             # Usamos um Signer "falso" apenas para preparar o espaço
@@ -52,7 +57,7 @@ def preparar_pdf():
                 stamp_style=stamp_style
             )
             
-            # MAGIA: Prepara o documento e extrai o Hash sem assinar!
+            # Prepara o documento e extrai o Hash sem assinar
             prep_digest, validation_info, output_stream = pdf_signer.digest_doc_for_signature(writer)
             
             # Guarda o ficheiro com o "buraco" da assinatura
