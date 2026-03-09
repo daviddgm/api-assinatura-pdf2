@@ -4,6 +4,10 @@ import uuid
 import traceback
 from flask import Flask, request, jsonify, send_file
 
+from asn1crypto.x509 import Certificate
+from asn1crypto.pem import unarmor
+from pyhanko_certvalidator.registry import SimpleCertificateStore
+
 from pyhanko.sign import signers
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.stamp import TextStampStyle
@@ -17,6 +21,7 @@ TEMP_DIR = tempfile.gettempdir()
 def preparar_pdf():
     try:
         pdf_file = request.files['pdf']
+        cert_pem = request.form['cert_pem'].encode('utf-8') 
         nome_assinante = request.form.get('nome_assinante', 'Responsável')
         cargo = request.form.get('cargo', '')
         posicao = request.form.get('posicao', '1')
@@ -25,7 +30,14 @@ def preparar_pdf():
         pdf_path = os.path.join(TEMP_DIR, f'{id_sessao}.pdf')
         pdf_file.save(pdf_path)
         
-        # Coordenadas do carimbo
+        # 1. Lê o certificado da memória sem falhas
+        type_name, headers, der_bytes = unarmor(cert_pem)
+        certificado = Certificate.load(der_bytes)
+        
+        # 2. Cria o Cofre e regista o certificado
+        cert_registry = SimpleCertificateStore()
+        cert_registry.register(certificado)
+        
         if posicao == '1': box = (60, 280, 220, 330)
         elif posicao == '2': box = (220, 280, 380, 330)
         else: box = (380, 280, 540, 330)
@@ -38,21 +50,23 @@ def preparar_pdf():
             append_signature_field(writer, SigFieldSpec(sig_field_name=nome_campo, on_page=ultima_pagina, box=box))
             
             texto = f"✓ ASSINADO DIGITALMENTE\nPor: {nome_assinante}\n{cargo}\nData: %(ts)s"
-            stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background=0)
+            stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background_alpha=0)
 
-            # A SOLUÇÃO DEFINITIVA: O Embedder Oficial do pyHanko
-            # Ele cria o espaço e extrai o Hash sem pedir chaves, cofres ou certificados!
-            embedder = signers.PdfCMSEmbedder(
+            # A CORREÇÃO MESTRA: Passamos os 3 itens obrigatoriamente na ordem (Certificado, Chave[Nula], Cofre)
+            signer = signers.SimpleSigner(certificado, None, cert_registry)
+            
+            pdf_signer = signers.PdfSigner(
                 signature_meta=signers.PdfSignatureMetadata(field_name=nome_campo, md_algorithm='sha256'),
+                signer=signer,
                 stamp_style=stamp_style
             )
             
+            prep_digest, validation_info, output_stream = pdf_signer.digest_doc_for_signature(writer)
+            
             with open(os.path.join(TEMP_DIR, f'{id_sessao}_pendente.pdf'), 'wb') as f:
-                # Salva o arquivo pendente e gera a "Setup" da assinatura
-                prep_setup = embedder.write_prepped_document(writer, out_stream=f)
+                f.write(output_stream.getbuffer())
                 
-            # Extrai o Hash perfeito da Setup
-            hash_documento = prep_setup.document_digest.hex()
+            hash_documento = prep_digest.document_digest.hex()
 
         return jsonify({
             'status': 'sucesso',
@@ -68,7 +82,7 @@ def preparar_pdf():
 @app.route('/injetar', methods=['POST'])
 def injetar_assinatura():
     try:
-        # Apenas para testar se a Fase 1 (Javascript local) passa com sucesso!
+        # Mantendo em manutenção para validarmos a Fase 1!
         return jsonify({'erro': 'Aviso: Preparação e JavaScript passaram com sucesso! Rota de Injeção em Manutenção.'}), 500
     except Exception as e:
         return jsonify({'erro': str(e)}), 500
