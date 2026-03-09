@@ -50,7 +50,7 @@ def preparar_pdf():
             append_signature_field(writer, SigFieldSpec(sig_field_name=nome_campo, on_page=ultima_pagina, box=box))
             
             texto = f"✓ ASSINADO DIGITALMENTE\nPor: {nome_assinante}\n{cargo}\nData: %(ts)s"
-            stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background_alpha=0)
+            stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background=0)
 
             # A CORREÇÃO MESTRA: Passamos os 3 itens obrigatoriamente na ordem (Certificado, Chave[Nula], Cofre)
             signer = signers.SimpleSigner(certificado, None, cert_registry)
