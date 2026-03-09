@@ -4,12 +4,6 @@ import uuid
 import traceback
 from flask import Flask, request, jsonify, send_file
 
-from asn1crypto.x509 import Certificate
-from asn1crypto.pem import unarmor
-
-# --- A IMPORTAÇÃO CORRETA DO COFRE (Nas versões novas do pyHanko fica aqui) ---
-from pyhanko_certvalidator.registry import SimpleCertificateStore
-
 from pyhanko.sign import signers
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.stamp import TextStampStyle
@@ -23,7 +17,6 @@ TEMP_DIR = tempfile.gettempdir()
 def preparar_pdf():
     try:
         pdf_file = request.files['pdf']
-        cert_pem = request.form['cert_pem'].encode('utf-8') 
         nome_assinante = request.form.get('nome_assinante', 'Responsável')
         cargo = request.form.get('cargo', '')
         posicao = request.form.get('posicao', '1')
@@ -32,14 +25,7 @@ def preparar_pdf():
         pdf_path = os.path.join(TEMP_DIR, f'{id_sessao}.pdf')
         pdf_file.save(pdf_path)
         
-        # Lê o certificado da memória sem falhas
-        type_name, headers, der_bytes = unarmor(cert_pem)
-        certificado = Certificate.load(der_bytes)
-        
-        # Cria o Cofre e regista o certificado (Exigência do pyHanko)
-        cert_registry = SimpleCertificateStore()
-        cert_registry.register(certificado)
-        
+        # Coordenadas do carimbo
         if posicao == '1': box = (60, 280, 220, 330)
         elif posicao == '2': box = (220, 280, 380, 330)
         else: box = (380, 280, 540, 330)
@@ -54,25 +40,19 @@ def preparar_pdf():
             texto = f"✓ ASSINADO DIGITALMENTE\nPor: {nome_assinante}\n{cargo}\nData: %(ts)s"
             stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background=0)
 
-            # Passamos o certificado E o cofre para o Signer
-            signer = signers.SimpleSigner(
-                signing_cert=certificado, 
-                signing_key=None,
-                cert_registry=cert_registry  # <-- O argumento obrigatório voltou!
-            )
-            
-            pdf_signer = signers.PdfSigner(
+            # A SOLUÇÃO DEFINITIVA: O Embedder Oficial do pyHanko
+            # Ele cria o espaço e extrai o Hash sem pedir chaves, cofres ou certificados!
+            embedder = signers.PdfCMSEmbedder(
                 signature_meta=signers.PdfSignatureMetadata(field_name=nome_campo, md_algorithm='sha256'),
-                signer=signer,
                 stamp_style=stamp_style
             )
             
-            prep_digest, validation_info, output_stream = pdf_signer.digest_doc_for_signature(writer)
-            
             with open(os.path.join(TEMP_DIR, f'{id_sessao}_pendente.pdf'), 'wb') as f:
-                f.write(output_stream.getbuffer())
+                # Salva o arquivo pendente e gera a "Setup" da assinatura
+                prep_setup = embedder.write_prepped_document(writer, out_stream=f)
                 
-            hash_documento = prep_digest.document_digest.hex()
+            # Extrai o Hash perfeito da Setup
+            hash_documento = prep_setup.document_digest.hex()
 
         return jsonify({
             'status': 'sucesso',
@@ -88,21 +68,8 @@ def preparar_pdf():
 @app.route('/injetar', methods=['POST'])
 def injetar_assinatura():
     try:
-        id_sessao = request.form['id_sessao']
-        assinatura_hex = request.form['assinatura_hex'] 
-        
-        pendente_path = os.path.join(TEMP_DIR, f'{id_sessao}_pendente.pdf')
-        out_path = os.path.join(TEMP_DIR, f'{id_sessao}_final.pdf')
-        
-        assinatura_bytes = bytes.fromhex(assinatura_hex)
-        
-        # Deixado comentado temporariamente para validarmos a Fase 1!
-        # with open(pendente_path, 'rb') as doc_in:
-        #    with open(out_path, 'wb') as doc_out:
-        #        signers.PdfSigner.fill_external_signature(doc_in, doc_out, assinatura_bytes)
-                
+        # Apenas para testar se a Fase 1 (Javascript local) passa com sucesso!
         return jsonify({'erro': 'Aviso: Preparação e JavaScript passaram com sucesso! Rota de Injeção em Manutenção.'}), 500
-
     except Exception as e:
         return jsonify({'erro': str(e)}), 500
 
