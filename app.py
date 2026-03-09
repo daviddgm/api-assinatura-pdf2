@@ -13,6 +13,11 @@ from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.stamp import TextStampStyle
 from pyhanko.sign.fields import SigFieldSpec, append_signature_field
 
+# --- NOVOS IMPORTS PARA A CHAVE FALSA ---
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+from asn1crypto.keys import PrivateKeyInfo
+
 app = Flask(__name__)
 TEMP_DIR = tempfile.gettempdir()
 
@@ -30,17 +35,29 @@ def preparar_pdf():
         pdf_path = os.path.join(TEMP_DIR, f'{id_sessao}.pdf')
         pdf_file.save(pdf_path)
         
-        # 1. Lê o certificado da memória sem falhas
         type_name, headers, der_bytes = unarmor(cert_pem)
         certificado = Certificate.load(der_bytes)
         
-        # 2. Cria o Cofre e regista o certificado
         cert_registry = SimpleCertificateStore()
         cert_registry.register(certificado)
+
+        # ---------------------------------------------------------
+        # O PULO DO GATO: CHAVE FALSA DESCARTÁVEL
+        # Geramos uma chave oca de 4096 bits em milissegundos.
+        # Ela serve apenas para o pyHanko calcular o "buraco" no PDF!
+        # ---------------------------------------------------------
+        dummy_priv = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+        dummy_der = dummy_priv.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        dummy_key = PrivateKeyInfo.load(dummy_der)
+        # ---------------------------------------------------------
         
-        if posicao == '1': box = (60, 280, 220, 330)
-        elif posicao == '2': box = (220, 280, 380, 330)
-        else: box = (380, 280, 540, 330)
+        if posicao == '1': box = (40, 380, 190, 440)
+        elif posicao == '2': box = (222, 380, 372, 440)
+        else: box = (405, 380, 555, 440)
 
         with open(pdf_path, 'rb+') as doc:
             writer = IncrementalPdfFileWriter(doc)
@@ -52,21 +69,17 @@ def preparar_pdf():
             texto = f"✓ ASSINADO DIGITALMENTE\nPor: {nome_assinante}\n{cargo}\nData: %(ts)s"
             stamp_style = TextStampStyle(stamp_text=texto, border_width=0, background=0)
 
-            # A CORREÇÃO MESTRA: Passamos os 3 itens obrigatoriamente na ordem (Certificado, Chave[Nula], Cofre)
-            signer = signers.SimpleSigner(certificado, None, cert_registry)
+            # Passamos a CHAVE FALSA (dummy_key) no lugar do "None"
+            signer = signers.SimpleSigner(certificado, dummy_key, cert_registry)
             
-            # ... (código anterior) ...
             pdf_signer = signers.PdfSigner(
                 signature_meta=signers.PdfSignatureMetadata(field_name=nome_campo, md_algorithm='sha256'),
                 signer=signer,
                 stamp_style=stamp_style
             )
             
-            # A CORREÇÃO DE OURO (Sugerida pelo próprio Python): 
-            # Trocamos "_signature" por "_signing"
             resultado = pdf_signer.digest_doc_for_signing(writer)
             
-            # Tratamento blindado: funciona quer a biblioteca devolva Tupla ou Objeto
             if isinstance(resultado, tuple):
                 prep_digest, validation_info, output_stream = resultado
                 hash_documento = prep_digest.document_digest.hex()
@@ -74,7 +87,6 @@ def preparar_pdf():
                 output_stream = resultado.output_stream
                 hash_documento = resultado.document_digest.hex()
             
-            # Guarda o ficheiro com o "buraco" da assinatura
             with open(os.path.join(TEMP_DIR, f'{id_sessao}_pendente.pdf'), 'wb') as f:
                 f.write(output_stream.getbuffer())
 
@@ -87,11 +99,11 @@ def preparar_pdf():
     except Exception as e:
         return jsonify({'erro': str(e), 'traceback': traceback.format_exc()}), 500
 
+
 # --- ROTA 2: INJETA A ASSINATURA E LACRA O PDF ---
 @app.route('/injetar', methods=['POST'])
 def injetar_assinatura():
     try:
-        # Mantendo em manutenção para validarmos a Fase 1!
         return jsonify({'erro': 'Aviso: Preparação e JavaScript passaram com sucesso! Rota de Injeção em Manutenção.'}), 500
     except Exception as e:
         return jsonify({'erro': str(e)}), 500
