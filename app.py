@@ -55,18 +55,28 @@ def preparar_pdf():
             # A CORREÇÃO MESTRA: Passamos os 3 itens obrigatoriamente na ordem (Certificado, Chave[Nula], Cofre)
             signer = signers.SimpleSigner(certificado, None, cert_registry)
             
+            # ... (código anterior) ...
             pdf_signer = signers.PdfSigner(
                 signature_meta=signers.PdfSignatureMetadata(field_name=nome_campo, md_algorithm='sha256'),
                 signer=signer,
                 stamp_style=stamp_style
             )
             
-            prep_digest, validation_info, output_stream = pdf_signer.digest_doc_for_signature(writer)
+            # A CORREÇÃO DE OURO (Sugerida pelo próprio Python): 
+            # Trocamos "_signature" por "_signing"
+            resultado = pdf_signer.digest_doc_for_signing(writer)
             
+            # Tratamento blindado: funciona quer a biblioteca devolva Tupla ou Objeto
+            if isinstance(resultado, tuple):
+                prep_digest, validation_info, output_stream = resultado
+                hash_documento = prep_digest.document_digest.hex()
+            else:
+                output_stream = resultado.output_stream
+                hash_documento = resultado.document_digest.hex()
+            
+            # Guarda o ficheiro com o "buraco" da assinatura
             with open(os.path.join(TEMP_DIR, f'{id_sessao}_pendente.pdf'), 'wb') as f:
                 f.write(output_stream.getbuffer())
-                
-            hash_documento = prep_digest.document_digest.hex()
 
         return jsonify({
             'status': 'sucesso',
@@ -76,7 +86,6 @@ def preparar_pdf():
 
     except Exception as e:
         return jsonify({'erro': str(e), 'traceback': traceback.format_exc()}), 500
-
 
 # --- ROTA 2: INJETA A ASSINATURA E LACRA O PDF ---
 @app.route('/injetar', methods=['POST'])
